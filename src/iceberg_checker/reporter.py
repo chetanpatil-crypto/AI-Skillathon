@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import textwrap
 from typing import Sequence
 
 from rich.console import Console
@@ -54,6 +55,107 @@ def _build_recommendations(results: Sequence[CheckResult]) -> list[str]:
     return recs
 
 
+def _ai_insight(results: Sequence[CheckResult]) -> str:
+    """Return a plain-language diagnostic paragraph matched to the check result pattern."""
+    sev    = {r.check_name: r.severity for r in results}
+    errors = [r.check_name for r in results if r.severity == Severity.ERROR]
+    warns  = [r.check_name for r in results if r.severity == Severity.WARN]
+
+    # All clear
+    if not errors and not warns:
+        return (
+            "All health signals are nominal. The metadata chain is intact, the snapshot "
+            "history is healthy, and the column schema is fully readable. "
+            "No action is required at this time."
+        )
+
+    # Metadata location lost — root cause, cascade pattern
+    if "metadata_location" in errors:
+        cascade = [c for c in ("current_snapshot", "snapshot_history") if c in warns or c in errors]
+        cascade_note = (
+            f" The {' and '.join(cascade)} signal(s) are downstream symptoms of the same root "
+            "cause and will resolve once the metadata pointer is restored."
+            if cascade else ""
+        )
+        return (
+            "This table shows signs of metadata fragmentation, commonly seen after "
+            "failed streaming ingestion, an aborted compaction job, or a storage lifecycle "
+            "policy that deleted the metadata file." + cascade_note + " "
+            "Prioritize ALTER ICEBERG TABLE ... REFRESH before investigating any other signals."
+        )
+
+    # External volume / IAM unreachable
+    if "iceberg_table_information" in errors:
+        return (
+            "Snowflake cannot reach the Iceberg metadata in external storage. "
+            "This pattern is typical of a revoked IAM policy, an expired SAS token, or a "
+            "misconfigured external volume after a cloud credential rotation. "
+            "Validate the storage integration with DESCRIBE EXTERNAL VOLUME before "
+            "attempting any table-level fixes."
+        )
+
+    # Table not found
+    if "table_exists" in errors:
+        return (
+            "The table was not found under the provided fully-qualified name. "
+            "Confirm the database and schema context, check whether the table was recently "
+            "dropped, and verify that the running role has REFERENCES privilege on "
+            "INFORMATION_SCHEMA. A privilege gap here causes table_exists to ERROR "
+            "even when the table physically exists."
+        )
+
+    # Column schema unreadable
+    if "column_metadata" in errors:
+        return (
+            "DESCRIBE TABLE failed, which almost always indicates a broken link between "
+            "the table definition and its external volume. This can happen after a storage "
+            "integration is modified or a bucket policy is tightened. "
+            "The table structure is likely intact -- restore the external volume permissions "
+            "and re-check before considering a metadata rebuild."
+        )
+
+    # Snapshot bloat (no other errors)
+    if "snapshot_history" in warns and not errors:
+        snap_result = next((r for r in results if r.check_name == "snapshot_history"), None)
+        count = (
+            snap_result.details.get("snapshot_count", "many")
+            if snap_result and snap_result.details else "many"
+        )
+        return (
+            f"With {count} unexpired snapshots, metadata scan overhead is accumulating. "
+            "This pattern is typical of a pipeline that lacks a scheduled EXPIRE SNAPSHOTS "
+            "maintenance task. Pruning to a 7-day retention window will reclaim external "
+            "storage and measurably improve query planning speed at this snapshot volume."
+        )
+
+    # Table never loaded
+    if "current_snapshot" in warns and not errors:
+        return (
+            "The table exists and its schema is readable, but no data has been committed yet. "
+            "This is expected for a newly created Iceberg table awaiting its first ingestion run. "
+            "Trigger the initial load job, then re-run the health check to confirm "
+            "snapshot registration and metadata pointer creation."
+        )
+
+    # Multiple errors — systemic failure
+    if len(errors) >= 2:
+        listed = ", ".join(errors)
+        return (
+            f"Multiple critical checks failed ({listed}). "
+            "This cascade pattern points to a systemic storage or permission failure rather "
+            "than an isolated table issue — a single root cause (external volume misconfiguration, "
+            "IAM policy change, or storage outage) can trigger all of these simultaneously. "
+            "Validate the external volume and storage integration before addressing individual checks."
+        )
+
+    # Generic fallback
+    return (
+        "One or more health signals require attention. "
+        "Apply the recommendations above in the listed order, then re-run the health check "
+        "to confirm each signal resolves before moving to the next."
+    )
+
+
 def _render(
     out: Console,
     table_fqn: str,
@@ -65,7 +167,7 @@ def _render(
     error = sum(1 for r in results if r.severity == Severity.ERROR)
     total = len(results)
 
-    score               = _health_score(ok, warn, total)
+    score                = _health_score(ok, warn, total)
     status, status_color = _status_label(error, warn)
 
     # ── Header box ──────────────────────────────────────────────────────────
@@ -104,6 +206,13 @@ def _render(
         for i, rec in enumerate(recs, 1):
             out.print(f"  {i}. {rec}")
 
+    # ── AI Insight ──────────────────────────────────────────────────────────
+    insight = _ai_insight(results)
+    wrapped = textwrap.fill(insight, width=70)
+    out.print(f"\n[bold cyan]AI INSIGHT:[/bold cyan]")
+    for line in wrapped.splitlines():
+        out.print(f"  [italic]{line}[/italic]")
+
     out.print()
 
 
@@ -136,6 +245,7 @@ def print_report(
                 for r in results
             ],
             "recommendations": _build_recommendations(results),
+            "ai_insight": _ai_insight(results),
         }
         output = json.dumps(payload, indent=2, default=str)
         console.print(output)
