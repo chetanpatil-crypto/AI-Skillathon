@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "snowflake-iceberg-table-health-checker"
+version = "0.1.0"
+description = "CLI tool to validate and report on Snowflake Iceberg table health"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "snowflake-connector-python>=3.6.0,<5.0",
+    "click>=8.1,<9.0",
+    "rich>=13.0,<16.0",
+    "python-dotenv>=1.0,<2.0",
+]
+
+[project.urls]
+Repository = "https://github.com/chetan-patil/snowflake-iceberg-table-health-checker"
+"Bug Tracker" = "https://github.com/chetan-patil/snowflake-iceberg-table-health-checker/issues"
+
+[project.scripts]
+iceberg-health = "iceberg_checker.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+iceberg_checker = ["py.typed"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0,<9.0",
+    "pytest-mock>=3.0,<4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

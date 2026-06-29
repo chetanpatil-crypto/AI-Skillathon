@@ -1,0 +1,7 @@
+# Pinned runtime dependencies for reproducible demo environments.
+# Install with: pip install -r requirements.txt
+# To install the editable package too: pip install -e . --no-deps
+snowflake-connector-python==4.6.0
+click==8.4.2
+rich==15.0.0
+python-dotenv==1.2.2
