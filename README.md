@@ -40,6 +40,30 @@ iceberg-health check MYDB.MYSCHEMA.MY_TABLE --format json
 
 ---
 
+## Execution Modes
+
+| Mode | Command | Snowflake Required |
+|---|---|---|
+| **Live** | `iceberg-health check MYDB.MYSCHEMA.MY_TABLE` | Yes |
+| **Demo** | `iceberg-health check demo_table --mock` | No |
+| **Dry Run** | `iceberg-health check MYDB.MYSCHEMA.MY_TABLE --dry-run` | No |
+
+### Live Mode (Snowflake Connected)
+Connects to Snowflake, runs all 6 real-time Iceberg diagnostics, and returns results ready for AI interpretation.
+
+### Demo Mode (No Snowflake Required)
+Built-in Iceberg simulation engine — generates deterministic, realistic check results without any credentials. Designed for Skill-a-thon evaluation and offline demos.
+
+```bash
+# Run demo (text report — no Snowflake needed)
+iceberg-health check demo_table --mock
+
+# Run demo (AI-ready JSON — paste into Claude)
+iceberg-health check demo_table --mock --format json
+```
+
+---
+
 ## CLI Reference
 
 ```bash
@@ -48,6 +72,10 @@ iceberg-health check MYDB.MYSCHEMA.MY_TABLE
 
 # Check with AI-ready JSON output
 iceberg-health check MYDB.MYSCHEMA.MY_TABLE --format json
+
+# Demo mode — no Snowflake connection required
+iceberg-health check demo_table --mock
+iceberg-health check demo_table --mock --format json
 
 # Preview checks without connecting to Snowflake
 iceberg-health check MYDB.MYSCHEMA.MY_TABLE --dry-run

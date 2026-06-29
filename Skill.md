@@ -432,6 +432,85 @@ results = run_metadata_checks(conn, "MYDB", "MYSCHEMA", "MY_TABLE")
 
 ---
 
+## Execution Modes
+
+### 1. Live Mode (Snowflake Connected)
+
+Connects to a real Snowflake account, queries live system functions, and produces diagnostic results from actual table metadata.
+
+**How it works:**
+- Authenticates via `SNOWFLAKE_*` environment variables or CLI flags
+- Runs `SYSTEM$GET_ICEBERG_TABLE_INFORMATION` to read the metadata pointer
+- Queries `INFORMATION_SCHEMA.ICEBERG_SNAPSHOT_INFORMATION` for snapshot history
+- Executes `DESCRIBE TABLE` to validate column schema
+- Returns results as structured JSON ready for AI interpretation
+
+**Commands:**
+```bash
+# Text report (human-readable)
+iceberg-health check MYDB.MYSCHEMA.MY_TABLE \
+  --account my-account --user my-user --password my-pass
+
+# AI-ready JSON output
+iceberg-health check MYDB.MYSCHEMA.MY_TABLE --format json
+
+# Preview checks without connecting
+iceberg-health check MYDB.MYSCHEMA.MY_TABLE --dry-run
+```
+
+**When to use:** Production incident response, daily health monitoring, pre-promotion validation.
+
+---
+
+### 2. Demo Mode (No Snowflake Required)
+
+Uses a built-in Iceberg simulation engine to generate deterministic, realistic diagnostic results without any Snowflake connection. Designed for Skill-a-thon evaluation, offline demos, CI pipelines, and onboarding new team members.
+
+**How it works:**
+- Bypasses all Snowflake connectivity
+- Generates a full 6-check health report with realistic mock data:
+  - Simulated S3 metadata path (`s3://my-iceberg-bucket/<db>/<table>/metadata/...`)
+  - Snapshot ID: `8675309`, count: `12`, date range: `2024-01-15` to `2024-06-01`
+  - Column list: `order_id`, `customer_id`, `order_date`, `total_amount`, `status`
+- Supports all output flags: `--format json`, `--details`, `--output`
+- Produces output structurally identical to Live Mode — judges can paste it directly into Claude
+
+**Commands:**
+```bash
+# Demo health report (text)
+iceberg-health check demo_table --mock
+
+# Demo health report (AI-ready JSON — paste into Claude)
+iceberg-health check demo_table --mock --format json
+
+# Demo with full details expanded
+iceberg-health check ANALYTICS.SALES.ORDERS --mock --details
+```
+
+**Sample output (`--mock`):**
+```
+ Simulating health check for DEMO.PUBLIC.demo_table...
+
++---------------------------------------------------------------+
+| Snowflake Iceberg Table Health Report                         |
+| Table: DEMO.PUBLIC.demo_table                                 |
+| Overall: HEALTHY  6 OK  0 WARN  0 ERROR                       |
++---------------------------------------------------------------+
+
+| Status | Check                     | Message                 |
+|--------|---------------------------|-------------------------|
+|   OK   | table_exists              | Table exists (type: ICEBERG TABLE). |
+|   OK   | iceberg_table_information | SYSTEM$GET_ICEBERG_TABLE_INFORMATION returned valid JSON. |
+|   OK   | metadata_location         | metadata-location present: s3://my-iceberg-bucket/... |
+|   OK   | current_snapshot          | Current snapshot ID: 8675309 |
+|   OK   | snapshot_history          | 12 snapshot(s) found. Latest: 2024-06-01, Oldest: 2024-01-15. |
+|   OK   | column_metadata           | 5 column(s) defined.    |
+```
+
+**When to use:** Skill-a-thon demos, offline evaluation, CI smoke tests, team onboarding.
+
+---
+
 ## Project Structure
 
 ```
@@ -448,7 +527,7 @@ snowflake-iceberg-table-health-checker/
 │   ├── checks/
 │   │   ├── base.py                 ← CheckFunction Protocol (extension point)
 │   │   └── metadata.py             ← 6 built-in health checks
-│   ├── cli.py                      ← CLI (check, list-tables, --dry-run, --format)
+│   ├── cli.py                      ← CLI (check, list-tables, --dry-run, --mock, --format)
 │   ├── connection.py               ← Snowflake connector with env-var fallback
 │   └── reporter.py                 ← Rich terminal + JSON output
 └── tests/                          ← 26 unit + CLI integration tests
