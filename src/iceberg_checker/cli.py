@@ -4,6 +4,12 @@ from __future__ import annotations
 import re
 import sys
 
+# Ensure stdout/stderr can render UTF-8 box-drawing and icon characters on Windows.
+if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if sys.platform == "win32" and hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 import click
 from rich.console import Console
 from rich.table import Table as RichTable
@@ -15,7 +21,7 @@ from .checks.metadata import CheckResult, Severity
 from .connection import get_connection
 from .reporter import print_report
 
-console = Console()
+console = Console(legacy_windows=False)
 
 _IDENTIFIER_RE = re.compile(r'^[A-Za-z0-9_$]+$')
 
