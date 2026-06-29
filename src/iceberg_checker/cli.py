@@ -11,6 +11,7 @@ from rich import box as rbox
 
 from . import __version__
 from .checks import run_metadata_checks
+from .checks.metadata import CheckResult, Severity
 from .connection import get_connection
 from .reporter import print_report
 
@@ -82,6 +83,53 @@ def _print_dry_run(
     console.print(f"[dim]{len(_DRY_RUN_CHECKS)} checks would run. Remove --dry-run to execute.[/dim]\n")
 
 
+def _mock_results(database: str, schema: str, table: str) -> list[CheckResult]:
+    """Return a realistic simulated health report — no Snowflake connection required."""
+    fqn = f"{database}.{schema}.{table}"
+    return [
+        CheckResult(
+            "table_exists", Severity.OK,
+            f"Table exists (type: ICEBERG TABLE).",
+            {"table_type": "ICEBERG TABLE"},
+        ),
+        CheckResult(
+            "iceberg_table_information", Severity.OK,
+            "SYSTEM$GET_ICEBERG_TABLE_INFORMATION returned valid JSON.",
+            {
+                "metadataLocation": f"s3://my-iceberg-bucket/{database.lower()}/{table.lower()}/metadata/00003-abc123.metadata.json",
+                "currentSnapshotId": 8675309,
+                "format-version": 2,
+            },
+        ),
+        CheckResult(
+            "metadata_location", Severity.OK,
+            f"metadata-location present: s3://my-iceberg-bucket/{database.lower()}/{table.lower()}/metadata/00003-abc123.metadata.json",
+            {"metadata_location": f"s3://my-iceberg-bucket/{database.lower()}/{table.lower()}/metadata/00003-abc123.metadata.json"},
+        ),
+        CheckResult(
+            "current_snapshot", Severity.OK,
+            "Current snapshot ID: 8675309",
+            {"snapshot_id": 8675309},
+        ),
+        CheckResult(
+            "snapshot_history", Severity.OK,
+            "12 snapshot(s) found. Latest: 2024-06-01 03:00:00, Oldest: 2024-01-15 03:00:00.",
+            {
+                "snapshot_count": 12,
+                "latest_snapshot": "2024-06-01 03:00:00",
+                "oldest_snapshot": "2024-01-15 03:00:00",
+                "total_added_records": 4820301,
+                "total_deleted_records": 12450,
+            },
+        ),
+        CheckResult(
+            "column_metadata", Severity.OK,
+            "5 column(s) defined.",
+            {"columns": ["order_id", "customer_id", "order_date", "total_amount", "status"]},
+        ),
+    ]
+
+
 @main.command("check")
 @click.argument("table")
 @click.option("--database", "-d", envvar="SNOWFLAKE_DATABASE", help="Snowflake database name.")
@@ -106,6 +154,12 @@ def _print_dry_run(
     default=False,
     help="Show which checks would run without connecting to Snowflake.",
 )
+@click.option(
+    "--mock",
+    is_flag=True,
+    default=False,
+    help="Run with simulated results — no Snowflake connection required (demo mode).",
+)
 def check_cmd(
     table: str,
     database: str | None,
@@ -119,6 +173,7 @@ def check_cmd(
     output: str | None,
     fmt: str,
     dry_run: bool,
+    mock: bool,
 ) -> None:
     """Run health checks on an Iceberg TABLE (name only, or db.schema.table)."""
     parts = table.split(".")
@@ -130,10 +185,14 @@ def check_cmd(
         schema = schema or parts[0]
         table = parts[1]
 
-    if not database:
-        raise click.UsageError("Database is required. Use --database or SNOWFLAKE_DATABASE env var.")
-    if not schema:
-        raise click.UsageError("Schema is required. Use --schema or SNOWFLAKE_SCHEMA env var.")
+    if mock or dry_run:
+        database = database or "DEMO"
+        schema = schema or "PUBLIC"
+    else:
+        if not database:
+            raise click.UsageError("Database is required. Use --database or SNOWFLAKE_DATABASE env var.")
+        if not schema:
+            raise click.UsageError("Schema is required. Use --schema or SNOWFLAKE_SCHEMA env var.")
 
     _validate_identifier(database, "database")
     _validate_identifier(schema, "schema")
@@ -142,6 +201,18 @@ def check_cmd(
     if dry_run:
         _print_dry_run(database, schema, table, account, fmt)
         return
+
+    if mock:
+        console.print(f"[dim][mock mode] Simulating health check for [cyan]{database}.{schema}.{table}[/cyan]...[/dim]")
+        results = _mock_results(database, schema, table)
+        exit_code = print_report(
+            f"{database}.{schema}.{table}",
+            results,
+            show_details=details,
+            output_file=output,
+            fmt=fmt,
+        )
+        sys.exit(exit_code)
 
     console.print(f"[dim]Connecting to Snowflake ({account or 'from env'})...[/dim]")
     try:

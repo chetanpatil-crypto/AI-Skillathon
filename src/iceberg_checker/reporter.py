@@ -13,9 +13,9 @@ from rich.text import Text
 from .checks.metadata import CheckResult, Severity
 
 _SEVERITY_ICON = {
-    Severity.OK: "[green]✔[/green]",
-    Severity.WARN: "[yellow]⚠[/yellow]",
-    Severity.ERROR: "[red]✘[/red]",
+    Severity.OK: "[green]OK [/green]",
+    Severity.WARN: "[yellow]WARN[/yellow]",
+    Severity.ERROR: "[red]ERR [/red]",
 }
 
 console = Console()
